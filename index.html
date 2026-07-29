@@ -102,7 +102,7 @@
     <!-- [파트 2] 관리자 메뉴 화면 -->
     <div id="adminView" class="hidden">
         
-        <!-- 0. 데이터 백업 및 복원 (신규 추가) -->
+        <!-- 0. 데이터 백업 및 복원 -->
         <div class="card" style="border: 2px solid #2980b9;">
             <h2>💾 데이터 백업 및 복원 (삭제 방지)</h2>
             <p style="font-size: 13px; color: #666; margin-top: -5px;">정기적으로 데이터를 컴퓨터에 다운로드하여 보관하세요. PC 변경 시 복원할 수 있습니다.</p>
@@ -138,7 +138,7 @@
             <button class="btn-manual" style="width: 100%;" onclick="addManualLog()">수동 기록 저장하기 📝</button>
         </div>
 
-        <!-- 3. 월말 급여 정산 -->
+        <!-- 3. 월말 급여 정산 (2026 요율 기준) -->
         <div class="card">
             <h2>월말 급여 정산 (주휴수당 & 세금/4대보험 포함)</h2>
             <div class="flex-gap">
@@ -154,8 +154,8 @@
                 <label for="taxOption" style="font-weight: bold; min-width: 100px;">공제 선택:</label>
                 <select id="taxOption">
                     <option value="none">공제 안함 (세전 급여)</option>
-                    <option value="3.3">소득세 3.3% 공제 (사업소득)</option>
-                    <option value="4insurance">4대보험 공제 (근로자 부담분 9.72%)</option>
+                    <option value="4insurance">2026 4대보험 공제 (근로자 부담분 총 9.7174%)</option>
+                    <option value="incomeTaxRate">소득세 기본세율 적용 (과세표준 누진세율 + 지방소득세)</option>
                 </select>
             </div>
 
@@ -222,9 +222,6 @@
             document.getElementById('pageTitle').innerText = "⏱️ 직원 출퇴근 & 시급 계산기";
         }
 
-        // ==========================================
-        // 백업 및 복원 로직
-        // ==========================================
         function exportDataBackup() {
             const backupData = {
                 workers: workers,
@@ -505,6 +502,32 @@
             return `${monday.getFullYear()}-${monday.getMonth() + 1}-${monday.getDate()}`;
         }
 
+        // 산출세액(소득세 기본세율) 계산 알고리즘 (과세표준 구간 반영)
+        function calculateIncomeTax(annualTaxable) {
+            let annualTax = 0;
+            if (annualTaxable <= 14000000) {
+                annualTax = annualTaxable * 0.06;
+            } else if (annualTaxable <= 50000000) {
+                annualTax = 840000 + (annualTaxable - 14000000) * 0.15;
+            } else if (annualTaxable <= 88000000) {
+                annualTax = 6240000 + (annualTaxable - 50000000) * 0.24;
+            } else if (annualTaxable <= 150000000) {
+                annualTax = 15360000 + (annualTaxable - 88000000) * 0.35;
+            } else if (annualTaxable <= 300000000) {
+                annualTax = 37060000 + (annualTaxable - 150000000) * 0.38;
+            } else if (annualTaxable <= 500000000) {
+                annualTax = 94060000 + (annualTaxable - 300000000) * 0.40;
+            } else if (annualTaxable <= 1000000000) {
+                annualTax = 174060000 + (annualTaxable - 500000000) * 0.42;
+            } else {
+                annualTax = 384060000 + (annualTaxable - 1000000000) * 0.45;
+            }
+            
+            // 지방소득세 10% 추가
+            const totalAnnualTax = annualTax * 1.1;
+            return totalAnnualTax / 12; // 월 환산액
+        }
+
         function calculateSalary() {
             const workerId = document.getElementById('calcWorkerSelect').value;
             const wage = Number(document.getElementById('hourlyWage').value);
@@ -559,17 +582,20 @@
             let taxAmount = 0;
             let taxLabel = "없음";
 
-            if (taxOption === "3.3") {
-                taxAmount = Math.round(totalGrossSalary * 0.033);
-                taxLabel = "소득세 (3.3%)";
-            } else if (taxOption === "4insurance") {
-                const nationalPension = totalGrossSalary * 0.0475;
-                const healthInsurance = totalGrossSalary * 0.03595;
-                const longTermCare = healthInsurance * 0.1314;
-                const employmentInsurance = totalGrossSalary * 0.009;
+            if (taxOption === "4insurance") {
+                // 2026년 4대보험 근로자 요율 세부 계산
+                const nationalPension = totalGrossSalary * 0.0475; // 국민연금 4.75%
+                const healthInsurance = totalGrossSalary * 0.03595; // 건강보험 3.595%
+                const longTermCare = healthInsurance * 0.1314; // 장기요양보험 (건강보험료의 13.14%)
+                const employmentInsurance = totalGrossSalary * 0.009; // 고용보험 0.9%
 
                 taxAmount = Math.round(nationalPension + healthInsurance + longTermCare + employmentInsurance);
-                taxLabel = "4대보험 (근로자 부담분 약 9.72%)";
+                taxLabel = "2026 4대보험 (근로자 부담분 총 9.7174%)";
+            } else if (taxOption === "incomeTaxRate") {
+                // 소득세 기본세율(과세표준) 누진 적용
+                const annualEstimated = totalGrossSalary * 12; // 연간 환산 과세표준
+                taxAmount = Math.round(calculateIncomeTax(annualEstimated));
+                taxLabel = "소득세 기본세율 (누진세율 + 지방소득세)";
             }
 
             const netSalary = totalGrossSalary - taxAmount;
